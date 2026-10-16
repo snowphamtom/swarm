@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SWARM = Path.home() / "workspace" / "swarm"
-REFUSAL = Path.home() / "workspace" / "your_files" / "refusal_swarm" / "refusal_swarm.py"
+REFUSAL = Path.home() / "workspace" / "swarm" / "refusal_swarm.py"
 FLOW = SWARM / "flow"
 STATE = FLOW / "flow_state.json"
 DATA = Path.home() / "refusal_swarm_data"

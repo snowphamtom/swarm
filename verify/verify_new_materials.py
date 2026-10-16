@@ -15,12 +15,19 @@ Exit 0 iff every check passes.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from itertools import combinations
 from pathlib import Path
 
-USER_FILES = Path.home() / "workspace" / "user" / "files"
+USER_FILES = Path(os.environ.get(
+    "SWARM_DATA_DIR",
+    str(Path(__file__).resolve().parent.parent / "data")))
+if not (USER_FILES / "codec_advanced.py").exists():
+    _fallback = Path.home() / "workspace" / "user" / "files"
+    if (_fallback / "codec_advanced.py").exists():
+        USER_FILES = _fallback
 FAILS: list[str] = []
 
 
