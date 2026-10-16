@@ -1,0 +1,80 @@
+---
+name: swarm-nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run the swarm
+        run: |
+          python3 - <<'PYEOF' > /tmp/nightly.json
+          import json, sys, subprocess
+          sys.path.insert(0, '.')
+          import refusal_swarm as rs
+          rs.init()
+          doc = {"targets": {}}
+          for target in ("legacy", "hardened"):
+              out = rs.role_judge(target)
+              doc["targets"][target] = {
+                  "judge": out["verdict"],
+                  "genomes": {r["genome"]: {"verdict": r["verdict"], "misc": r["misc"]} for r in out["results"]},
+                  "adversarial": out["adversarial"]["counterexamples"],
+              }
+          p = subprocess.run([sys.executable, "verify/verify_new_materials.py"],
+                             capture_output=True, text=True, timeout=900)
+          doc["new_materials_passed"] = (p.returncode == 0)
+          doc["chain"] = rs.verify_chain()
+          print(json.dumps(doc))
+          PYEOF
+          cat /tmp/nightly.json
+      - name: File the report
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          mkdir -p reports
+          python3 - <<'PYEOF'
+          import json, datetime
+          doc = json.load(open('/tmp/nightly.json'))
+          d = datetime.date.today().isoformat()
+          lines = [f"# Swarm nightly report — {d}", ""]
+          for target, t in doc["targets"].items():
+              lines.append(f"## {target}: judge **{t['judge']}**")
+              for gid, g in t["genomes"].items():
+                  lines.append(f"- {gid}: {g['verdict']} (miscorrected {g['misc']})")
+              lines.append(f"- adversarial counterexamples: {t['adversarial']}")
+              lines.append("")
+          lines.append(f"New materials: {'PASSED' if doc['new_materials_passed'] else 'FAILED'}")
+          ch = doc["chain"]
+          lines.append(f"Ledger chain: {'OK' if ch.get('ok') else 'BROKEN'} ({ch.get('n', '?')} entries)")
+          open(f"reports/{d}.md", "w").write("\n".join(lines) + "\n")
+          PYEOF
+          git config user.name "swarm-lead"
+          git config user.email "swarm-lead@users.noreply.github.com"
+          git add reports/
+          git diff --cached --quiet || git commit -m "nightly swarm report $(date -u +%Y-%m-%d)"
+          git push
+      - name: Open issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Swarm nightly FAILED — ${new Date().toISOString().slice(0,10)}`,
+              body: "The nightly swarm run failed. Check the workflow logs; the pinned behavior drifted or a component broke. Fail-closed: investigate before re-running.",
+              labels: ["swarm", "failure"]
+            })
+---
